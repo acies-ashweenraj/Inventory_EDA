@@ -8,6 +8,13 @@ import plotly.graph_objects as go
 from io import BytesIO
 
 st.set_page_config(layout="wide")
+def format_number_short(n):
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    elif n >= 1_000:
+        return f"{n/1_000:.1f}K"
+    else:
+        return str(int(n))
 
 st.markdown("""
     <style>
@@ -79,22 +86,27 @@ try:
     df['XYZ Class'] = df['CV'].apply(lambda x: 'X' if x <= 0.5 else ('Y' if x <= 1 else 'Z'))
     df['ABC-XYZ Class'] = df['ABC Class'] + '-' + df['XYZ Class']
 
-    # Filtering
+    # -------------------- KPI and PIE CHART Section ----------------------
     status_counts = df['Movement Category'].value_counts().reset_index()
     status_counts.columns = ['Stock Status', 'Count']
-    selected_status = st.selectbox("Filter by Movement Category:", ['All'] + list(status_counts['Stock Status']))
-    filtered_df = df if selected_status == 'All' else df[df['Movement Category'] == selected_status]
-    filtered_df_inactivity = df_inactivity if selected_status == 'All' else df_inactivity[df_inactivity['Movement Category'] == selected_status]
 
     col1, col2, col3 = st.columns(3)
-    col1.markdown(f"<div class='metric-box'><h3>{filtered_df['SKU ID'].nunique()}</h3><p>SKU Count</p></div>", unsafe_allow_html=True)
-    col2.markdown(f"<div class='metric-box'><h3>₹{filtered_df['Consumption Value'].sum():,.0f}</h3><p>Total Inventory Value</p></div>", unsafe_allow_html=True)
-    col3.markdown(f"<div class='metric-box'><h3>{filtered_df['Order Quantity mean'].mean():.2f}</h3><p>Average Order Quantity</p></div>", unsafe_allow_html=True)
+    col1.markdown(f"<div class='metric-box'><h3>{df['SKU ID'].nunique()}</h3><p>SKU Count</p></div>", unsafe_allow_html=True)
+    inventory_value = df['Consumption Value'].sum()
+    col2.markdown(f"<div class='metric-box'><h3>₹{format_number_short(inventory_value)}</h3><p>Total Inventory Value</p></div>", unsafe_allow_html=True)
+    col3.markdown(f"<div class='metric-box'><h3>{df['Order Quantity mean'].mean():.2f}</h3><p>Average Order Quantity</p></div>", unsafe_allow_html=True)
 
     st.plotly_chart(px.pie(status_counts, names='Stock Status', values='Count', hole=0.5), use_container_width=True)
 
-    # Heatmap
-    st.markdown("<hr><h3 style='color:white'>ABC-XYZ Heatmap</h3>", unsafe_allow_html=True)
+    # --------------------- Filters (AFTER KPI) -----------------------
+    
+    selected_status = st.selectbox("Filter by Movement Category:", ['All'] + list(status_counts['Stock Status']))
+
+    filtered_df = df if selected_status == 'All' else df[df['Movement Category'] == selected_status]
+    filtered_df_inactivity = df_inactivity if selected_status == 'All' else df_inactivity[df_inactivity['Movement Category'] == selected_status]
+
+    # --------------------- Heatmap -------------------------
+    st.markdown("<h3 style='color:black'>ABC-XYZ Heatmap</h3>", unsafe_allow_html=True)
     abc_xyz_df = filtered_df.groupby(['ABC Class', 'XYZ Class']).size().reset_index(name='Count')
     pivot_df = abc_xyz_df.pivot(index='XYZ Class', columns='ABC Class', values='Count').fillna(0).sort_index(ascending=False)
     fig_heatmap = go.Figure(go.Heatmap(
@@ -108,8 +120,8 @@ try:
     ))
     st.plotly_chart(fig_heatmap, use_container_width=True)
 
-    # Inactivity Buckets
-    st.markdown("<hr><h3 style='color:white'>Inactivity Buckets</h3><p style='color:white'>How long since SKUs were last ordered?</p>", unsafe_allow_html=True)
+    # ---------------------- Inactivity Buckets ---------------------
+    st.markdown("<hr><h3 style='color:black'>Inactivity Buckets</h3><p style='color:white'>How long since SKUs were last ordered?</p>", unsafe_allow_html=True)
     bucket_view = st.selectbox("", ['Weeks', 'Months', 'Days'])
 
     def get_bucket_label(days):
@@ -131,8 +143,8 @@ try:
         inactive_summary.columns = ['Inactivity Period', 'Inactive SKU Count']
         st.bar_chart(inactive_summary.set_index('Inactivity Period'))
 
-    # Export section
-    st.markdown("<hr><h3 style='color:white'>Export Metrics to Excel</h3><hr>", unsafe_allow_html=True)
+    # --------------------- Export Section -------------------
+    st.markdown("<h3 style='color:black'>Export Metrics to Excel</h3>", unsafe_allow_html=True)
     options = st.multiselect("Choose data to export:", [
         "ABC Inventory Classification",
         "XYZ Classification",

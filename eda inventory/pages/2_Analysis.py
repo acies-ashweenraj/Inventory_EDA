@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 
 # --- Streamlit Page Setup ---
 st.set_page_config(page_title="Inventory Analysis", layout="wide")
-st.title(" Inventory Health & RCA Analysis")
+st.title("Inventory Health & RCA Analysis")
 
 # --- Load Data ---
 if "merged_df" not in st.session_state:
@@ -54,6 +54,14 @@ def classify(row):
         return "Understocked"
 
 df["Stock Status"] = df.apply(classify, axis=1)
+def format_number_short(n):
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.2f}M"
+    elif n >= 1_000:
+        return f"{n/1_000:.2f}K"
+    else:
+        return str(int(n))
+
 
 # --- KPI Metrics ---
 total_skus = df["SKU ID"].nunique()
@@ -63,31 +71,42 @@ total_value = df["Stock Value"].sum()
 col1, col2, col3 = st.columns(3)
 col1.metric("Total SKUs", total_skus)
 col2.metric("Total Stock Quantity", total_stock)
-col3.metric("Inventory Value (₹)", f"{int(total_value):,}")
+col3.metric("Inventory Value (₹)", f"{format_number_short(total_value)}")
 
-# --- Add Filter for Stock Health ---
-st.markdown("###  Filter by Stock Health")
-stock_status_options = df["Stock Status"].unique().tolist()
-selected_status = st.multiselect("Select Stock Status", options=stock_status_options, default=stock_status_options)
-
-df = df[df["Stock Status"].isin(selected_status)]
-
-st.markdown("---")
-
-# --- Inventory Health Summary ---
-st.subheader(" Inventory Stock Health")
-
+# --- Smooth Expand Transition for Inventory Health ---
 summary = df["Stock Status"].value_counts().to_dict()
-col_a, col_b, col_c = st.columns(3)
-col_a.metric("Understocked", summary.get("Understocked", 0))
-col_b.metric("Overstocked", summary.get("Overstocked", 0))
-col_c.metric("Ideal Stock", summary.get("Ideal", 0))
+
+with st.expander("Show Inventory Stock Health (Under / Over / Ideal)"):
+    col4, col5, col6 = st.columns(3)
+    col4.metric("Understocked", summary.get("Understocked", 0))
+    col5.metric("Overstocked", summary.get("Overstocked", 0))
+    col6.metric("Ideal Stock", summary.get("Ideal", 0))
+
+# --- Filter Section with "ALL" Option ---
+st.markdown("### Filter by Stock Health")
+
+stock_status_options = ["ALL"] + df["Stock Status"].unique().tolist()
+selected_status = st.multiselect(
+    "Select Stock Status",
+    options=stock_status_options,
+    default=["ALL"]
+)
+
+# Ensure "ALL" is exclusive
+if "ALL" in selected_status and len(selected_status) > 1:
+    selected_status = [s for s in selected_status if s != "ALL"]
+
+# Filter the dataframe
+if "ALL" in selected_status:
+    df_filtered = df.copy()
+else:
+    df_filtered = df[df["Stock Status"].isin(selected_status)]
 
 st.markdown("---")
 
 # --- Chart 1: Stock vs Safety Stock ---
-st.subheader(" Stock vs Safety Stock (Top SKUs at Risk)")
-top15 = df.sort_values("Current Stock Quantity", ascending=False).head(15)
+st.subheader("Stock vs Safety Stock (Top SKUs at Risk)")
+top15 = df_filtered.sort_values("Current Stock Quantity", ascending=False).head(15)
 fig1 = go.Figure()
 fig1.add_trace(go.Bar(x=top15["SKU ID"], y=top15["Current Stock Quantity"], name="Current Stock", marker_color="#4e79a7"))
 fig1.add_trace(go.Scatter(x=top15["SKU ID"], y=top15["Safety Stock"], name="Safety Stock", mode="lines+markers", line=dict(color="#e15759", width=2)))
@@ -97,9 +116,9 @@ st.plotly_chart(fig1, use_container_width=True)
 st.markdown("---")
 
 # --- Chart 2: RCA Scatter Plot ---
-st.subheader(" Root Cause Analysis (Stock vs Demand)")
+st.subheader("Root Cause Analysis (Stock vs Demand)")
 fig_rca = px.scatter(
-    df,
+    df_filtered,
     x="Order Quantity sum",
     y="Current Stock Quantity",
     color="Stock Status",
@@ -112,9 +131,9 @@ fig_rca.update_layout(height=450)
 st.plotly_chart(fig_rca, use_container_width=True)
 
 # --- RCA Explanation for a Selected SKU ---
-st.subheader(" RCA Explanation by SKU")
-sku_selected = st.selectbox("Select a SKU:", options=df["SKU ID"].unique())
-sku_row = df[df["SKU ID"] == sku_selected].iloc[0]
+st.subheader("RCA Explanation by SKU")
+sku_selected = st.selectbox("Select a SKU:", options=df_filtered["SKU ID"].unique())
+sku_row = df_filtered[df_filtered["SKU ID"] == sku_selected].iloc[0]
 
 st.write(f"**SKU ID:** `{sku_selected}`")
 st.write(f"**Stock Status:** `{sku_row['Stock Status']}`")
@@ -125,8 +144,7 @@ st.write(f"**Safety Stock:** {sku_row['Safety Stock']:.2f}")
 st.write(f"**Lead Time:** {sku_row['Average Lead Time (days)']} days")
 
 # --- RCA Narrative ---
-st.markdown("###  Root Cause & Recommendation")
-
+st.markdown("### Root Cause & Recommendation")
 if sku_row["Stock Status"] == "Understocked":
     st.error("This SKU has **Low DOS**. You're at risk of stockouts.")
     st.markdown("""
@@ -153,9 +171,9 @@ else:
 st.markdown("---")
 
 # --- Chart 3: Top SKUs by Order Value ---
-st.subheader(" Top SKUs by Order Value")
-df["Order Value"] = df["Order Quantity sum"] * df["Unit Price"]
-top_value = df.sort_values(by="Order Value", ascending=False).head(15)
+st.subheader("Top SKUs by Order Value")
+df_filtered["Order Value"] = df_filtered["Order Quantity sum"] * df_filtered["Unit Price"]
+top_value = df_filtered.sort_values(by="Order Value", ascending=False).head(15)
 fig3 = px.bar(top_value, x="Order Value", y="SKU ID", orientation="h", color="Order Value", color_continuous_scale="Viridis")
 fig3.update_layout(height=450, yaxis_title="SKU ID", xaxis_title="Order Value (₹)")
 st.plotly_chart(fig3, use_container_width=True)
