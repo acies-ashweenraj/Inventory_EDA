@@ -9,6 +9,10 @@ st.title("Upload Inventory & Orders Data")
 sample_order_path = "data/sample_orders.xlsx"
 sample_stock_path = "data/sample_master.xlsx"
 
+# Initialize session state for sample
+if "use_sample" not in st.session_state:
+    st.session_state.use_sample = False
+
 # Expected Columns for Auto-Mapping
 expected_orders_cols = {
     "Order Date": ["Order Date", "Date", "Order_Date", "OrderDate"],
@@ -28,7 +32,6 @@ expected_stock_cols = {
     "Location": ["Location", "Warehouse", "Site"]
 }
 
-# Helper: Auto Map Column
 def auto_map(col_list, candidates):
     for name in candidates:
         match = difflib.get_close_matches(name, col_list, n=1, cutoff=0.6)
@@ -36,7 +39,7 @@ def auto_map(col_list, candidates):
             return match[0]
     return None
 
-# File Upload Section
+
 st.subheader("Step 1: Upload Your Excel Files")
 
 col1, col2 = st.columns(2)
@@ -45,23 +48,21 @@ with col1:
 with col2:
     uploaded_stock = st.file_uploader("Upload Inventory Master Excel", type=["xlsx"], key="stock")
 
-# Sample Data Option
-use_sample = st.checkbox("Use Sample Data from /data folder")
-if use_sample:
-    if not os.path.exists(sample_order_path) or not os.path.exists(sample_stock_path):
-        st.error("Sample files not found in 'data/' folder.")
-        st.stop()
+
+if st.button("Use Sample Data"):
+    st.session_state.use_sample = True
+    st.success("Sample data selected.")
+
+if st.session_state.use_sample:
     uploaded_orders = sample_order_path
     uploaded_stock = sample_stock_path
-    st.success("Loaded sample_orders.xlsx and sample_master.xlsx")
 
-# Proceed if both files are ready
+
 if uploaded_orders and uploaded_stock:
     try:
         df_orders = pd.read_excel(uploaded_orders)
         df_stock = pd.read_excel(uploaded_stock)
 
-        # Auto-mapping
         order_mappings = {
             k: auto_map(df_orders.columns.tolist(), v) or ""
             for k, v in expected_orders_cols.items()
@@ -71,7 +72,6 @@ if uploaded_orders and uploaded_stock:
             for k, v in expected_stock_cols.items()
         }
 
-        # Display initial mappings
         st.markdown("### Auto-Mapped Columns")
         mapping_df = pd.DataFrame({
             "Standard Name": list(order_mappings.keys()) + list(stock_mappings.keys()),
@@ -80,7 +80,6 @@ if uploaded_orders and uploaded_stock:
         })
         st.dataframe(mapping_df, use_container_width=True)
 
-        # Editable mapping options
         st.subheader("Edit Mappings (Optional)")
         with st.expander("Edit Orders Column Mapping"):
             for k in expected_orders_cols:
@@ -100,10 +99,8 @@ if uploaded_orders and uploaded_stock:
                     key=f"stock_{k}"
                 )
 
-        # Confirm Button
         if st.button("Submit & Process Data"):
             try:
-                # Clean orders
                 orders_df = df_orders[[
                     order_mappings["Order Date"], order_mappings["SKU ID"], order_mappings["Order Quantity"]
                 ]].rename(columns={
@@ -113,7 +110,6 @@ if uploaded_orders and uploaded_stock:
                 })
                 orders_df["Order Date"] = pd.to_datetime(orders_df["Order Date"], errors="coerce")
 
-                # Clean stock
                 stock_df = df_stock[[
                     stock_mappings["SKU ID"], stock_mappings["SKU Name"], stock_mappings["Category"],
                     stock_mappings["Current Stock Quantity"], stock_mappings["Unit Price"],
@@ -131,16 +127,13 @@ if uploaded_orders and uploaded_stock:
                     stock_mappings["Location"]: "Location"
                 })
 
-                # Aggregations
                 agg_orders = orders_df.groupby("SKU ID").agg({
                     "Order Quantity": ["sum", "mean", "std"]
                 }).reset_index()
                 agg_orders.columns = ["SKU ID", "Order Quantity sum", "Order Quantity mean", "Order Quantity std"]
 
-                # Last Order Date
                 last_order_df = orders_df.groupby("SKU ID")["Order Date"].max().reset_index(name="Last Order Date")
 
-                # Median Days Between Orders
                 def compute_median_days(group):
                     group = group.sort_values("Order Date")
                     group["Days Between Orders"] = group["Order Date"].diff().dt.days
@@ -150,22 +143,21 @@ if uploaded_orders and uploaded_stock:
 
                 median_days_df = orders_df.groupby("SKU ID").apply(compute_median_days).reset_index()
 
-                # Merge all
                 merged_df = pd.merge(stock_df, agg_orders, on="SKU ID", how="left")
                 merged_df = pd.merge(merged_df, last_order_df, on="SKU ID", how="left")
                 merged_df = pd.merge(merged_df, median_days_df, on="SKU ID", how="left")
 
-                # Clean up
                 merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
                 merged_df.fillna(0, inplace=True)
 
-                # Save to session
                 st.session_state["orders_df"] = orders_df
                 st.session_state["stock_df"] = stock_df
                 st.session_state["merged_df"] = merged_df
 
                 st.success("Data uploaded and processed successfully.")
-                st.dataframe(merged_df, use_container_width=True)
+
+                with st.expander("See Processed Data (Click to Expand)"):
+                    st.dataframe(merged_df, use_container_width=True)
 
             except Exception as e:
                 st.error(f"Error during processing: {e}")
