@@ -15,7 +15,12 @@ df = st.session_state["merged_df"]
 df_sample = df.head(10).to_csv(index=False)
 
 # --- GROQ Config ---
-GROQ_API_KEY = "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"
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+GROQ_API_KEY= os.getenv("GROQ_API_KEY")
 MODEL = "llama3-70b-8192"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -47,6 +52,7 @@ if query:
             "temperature": 0.3,
             "max_tokens": 700
         }
+
 
         response = requests.post(GROQ_URL, headers=headers, json=payload)
 
